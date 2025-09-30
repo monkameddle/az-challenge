@@ -1,0 +1,40 @@
+version: '3.9'
+services:
+  backend:
+    build: ../backend
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///data/app.db
+      - JWT_SECRET=please-change
+      - IP_HASH_SECRET=please-change
+    volumes:
+      - backend_data:/data
+    networks: [web]
+
+
+  frontend:
+    build: ../frontend
+    networks: [web]
+
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on: [backend, frontend]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/etc/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [web]
+
+
+volumes:
+  backend_data:
+  caddy_data:
+  caddy_config:
+
+
+networks:
+  web:

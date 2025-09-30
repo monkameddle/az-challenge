@@ -1,0 +1,25 @@
+name = "lol-az-backend"
+version = "0.1.0"
+description = "FastAPI backend for LoL A–Z Challenge"
+authors = ["Meddling Monk it@meddlingmonk.com"]
+
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.0"
+uvicorn = {extras=["standard"], version="^0.30.0"}
+sqlalchemy = "^2.0.30"
+aiosqlite = "^0.20.0"
+passlib = {version="^1.7.4", extras=["bcrypt"]}
+PyJWT = "^2.8.0"
+python-multipart = "^0.0.9"
+httpx = "^0.27.0"
+
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.4.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
