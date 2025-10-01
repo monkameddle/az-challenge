@@ -1,45 +1,41 @@
 {
-servers {
-trusted_proxies cloudflare
-}
-}
-
-
-https://yourdomain {
-encode zstd gzip
-tls /etc/certs/origin.crt /etc/certs/origin.key
-
-
-@api path /api/*
-handle @api {
-reverse_proxy backend:8000 {
-header_up Host {host}
-header_up CF-Connecting-IP {remote}
-}
+  servers {
+    trusted_proxies cloudflare
+  }
 }
 
+https://{$DOMAIN} {
+  encode zstd gzip
+  tls /etc/certs/origin.crt /etc/certs/origin.key
 
-@ws path /ws
-handle @ws {
-reverse_proxy backend:8000 {
-header_up Host {host}
-header_up CF-Connecting-IP {remote}
-}
-}
+  @api path /api/*
+  handle @api {
+    reverse_proxy backend:8000 {
+      header_up Host {host}
+      header_up CF-Connecting-IP {remote}
+    }
+  }
 
+  @ws path /ws
+  handle @ws {
+    reverse_proxy backend:8000 {
+      header_up Host {host}
+      header_up CF-Connecting-IP {remote}
+    }
+  }
 
-handle {
-root * /usr/share/caddy
-try_files {path} /index.html
-file_server
+  handle {
+    root * /usr/share/caddy
+    try_files {path} /index.html
+    file_server
 
-
-header {
-Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-X-Content-Type-Options nosniff
-X-Frame-Options DENY
-Referrer-Policy no-referrer-when-downgrade
-Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://player.twitch.tv https://embed.twitch.tv; style-src 'self' 'unsafe-inline'; img-src 'self' https://static-cdn.jtvnw.net https://ddragon.leagueoflegends.com data:; media-src 'self' https://vod-secure.twitch.tv https://clips-media-assets2.twitch.tv; frame-src https://player.twitch.tv https://embed.twitch.tv; connect-src 'self' https://yourdomain wss://yourdomain https://ddragon.leagueoflegends.com;"
-}
-}
+    header {
+      Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+      X-Content-Type-Options nosniff
+      X-Frame-Options DENY
+      Referrer-Policy no-referrer-when-downgrade
+      # Nutzt {$DOMAIN} auch für WebSocket/HTTP connect-src
+      Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://player.twitch.tv https://embed.twitch.tv; style-src 'self' 'unsafe-inline'; img-src 'self' https://static-cdn.jtvnw.net https://ddragon.leagueoflegends.com data:; media-src 'self' https://vod-secure.twitch.tv https://clips-media-assets2.twitch.tv; frame-src https://player.twitch.tv https://embed.twitch.tv; connect-src 'self' https://{$DOMAIN} wss://{$DOMAIN} https://ddragon.leagueoflegends.com;"
+    }
+  }
 }

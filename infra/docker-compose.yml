@@ -3,23 +3,65 @@ services:
   backend:
     build: ../backend
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///data/app.db
-      - JWT_SECRET=please-change
-      - IP_HASH_SECRET=please-change
-      - RIOT_API_KEY=${RIOT_API_KEY}
-      - RIOT_CACHE_TTL_SECONDS=600
+      # DB
+      DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:////data/app.db}
+
+      # Security / Auth
+      JWT_SECRET: ${JWT_SECRET:?set-in-.env}
+      IP_HASH_SECRET: ${IP_HASH_SECRET:?set-in-.env}
+      SESSION_SECRET: ${SESSION_SECRET:?set-in-.env}
+
+      # Riot
+      RIOT_API_KEY: ${RIOT_API_KEY:-}
+      RIOT_CACHE_TTL_SECONDS: ${RIOT_CACHE_TTL_SECONDS:-600}
+
+      # Domains / CORS
+      DOMAIN: ${DOMAIN:?set-in-.env}
+      VITE_URL: ${VITE_URL:-${DOMAIN}}
+
+      # Optional: TZ und Anzahl Worker (1 für SQLite/WS)
+      TZ: ${TZ:-Europe/Berlin}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+
     volumes:
       - backend_data:/data
-    networks: [web]
+
+    # Optionales Hardening
+    read_only: false            # auf true setzen, wenn dein Code keine Schreibzugriffe braucht
+    tmpfs:
+      - /tmp
+    # user: "${PUID:-1000}:${PGID:-1000}"  # falls du Host-Rechte kontrollieren willst
+
+    # Healthcheck
+    healthcheck:
+      test: [ "CMD", "curl", "-fsS", "http://localhost:8000/healthz" ]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+    restart: unless-stopped
+    networks: [ web ]
 
 
   frontend:
-    build: ../frontend
-    networks: [web]
+    build:
+      context: ../frontend
+      args:
+        VITE_URL: ${VITE_URL:-${DOMAIN}}
+        VITE_REGION: ${VITE_REGION:-euw1}
+        VITE_SUMMONER: ${VITE_SUMMONER:-YOUR_SUMMONER}
+    environment:
+        - VITE_URL=${VITE_URL:-${DOMAIN}}
+        - VITE_REGION=${VITE_REGION:-euw1}
+        - VITE_SUMMONER=${VITE_SUMMONER:-YOUR_SUMMONER}
+    networks: [ web ]
 
 
   caddy:
     image: caddy:2-alpine
+    environment:
+      - DOMAIN=${DOMAIN}
     depends_on: [backend, frontend]
     ports:
       - "80:80"

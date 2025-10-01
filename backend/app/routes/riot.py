@@ -3,7 +3,12 @@ from sqlalchemy import select
 from datetime import datetime, timedelta
 from ..db import SessionLocal
 from ..models import RiotCache
-import os, json, httpx
+from urllib.parse import unquote, quote
+import os, json, httpx, logging
+
+logger = logging.getLogger("riot")
+logger.setLevel(logging.INFO)
+
 
 router = APIRouter()
 
@@ -27,13 +32,21 @@ REGION_ROUTING = {
 
 async def _get(url: str):
     headers = {"X-Riot-Token": RIOT_KEY}
+    logger.info(f"[riot] GET {url}")
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(url, headers=headers)
+        logger.info(f"[riot] <- {r.status_code} for {url}")
+        if r.status_code == 403:
+            # Key ungültig/abgelaufen/IP nicht erlaubt
+            raise HTTPException(403, "Riot: Forbidden – API key invalid/expired or IP not allowed.")
+        if r.status_code == 401:
+            raise HTTPException(401, "Riot: Unauthorized – API key missing.")
         if r.status_code == 429:
-            # Bubble up a friendly message
             raise HTTPException(429, "Riot rate limit hit. Try again shortly.")
         if r.status_code >= 400:
-            raise HTTPException(r.status_code, r.text)
+            snippet = (r.text or "")[:300]
+            logger.warning(f"[riot] Error body: {snippet}")
+            raise HTTPException(r.status_code, snippet)
         return r.json()
 
 async def cache_get(key: str):
@@ -58,34 +71,46 @@ async def cache_put(key: str, value: dict):
             s.add(RiotCache(key=key, value_json=payload, expires_at=expires))
         await s.commit()
 
-@router.get('/summary')
+@router.get("/summary")
 async def summary(region: str, summoner: str, count: int = 10):
     if not RIOT_KEY:
         raise HTTPException(500, "RIOT_API_KEY not configured")
     reg = region.lower()
     if reg not in REGION_ROUTING:
         raise HTTPException(400, f"Unsupported region: {region}")
-    plat = REGION_ROUTING[reg]['platform']
-    rr = REGION_ROUTING[reg]['regional']
+    plat = REGION_ROUTING[reg]["platform"]
+    rr = REGION_ROUTING[reg]["regional"]
 
-    # 1) Summoner → PUUID (cache)
-    ckey = f"summoner:{plat}:{summoner.lower()}"
-    data = await cache_get(ckey)
-    if not data:
-        data = await _get(f"https://{plat}.api.riotgames.com/lol/summoner/v4/summoners/by-name/{summoner}")
-        await cache_put(ckey, data)
-    puuid = data.get('puuid')
+    summoner_decoded = unquote(summoner).strip()
+    puuid = None
+
+    if "#" in summoner_decoded:
+        # Riot ID (gameName#tagLine) → Account-V1 (regional host)
+        gameName, tagLine = summoner_decoded.split("#", 1)
+        game_enc = quote(gameName, safe="")  # encode path segments!
+        tag_enc  = quote(tagLine,  safe="")
+        url = f"https://{rr}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{game_enc}/{tag_enc}"
+        logger.info(f"[riot] Resolving Riot ID {gameName}#{tagLine} via {url}")
+        acct = await _get(url)
+        puuid = acct.get("puuid")
+    else:
+        # Klassischer Summoner-Name → Summoner-V4 (platform host)
+        name_enc = quote(summoner_decoded, safe="")
+        url = f"https://{plat}.api.riotgames.com/lol/summoner/v4/summoners/by-name/{name_enc}"
+        logger.info(f"[riot] Resolving Summoner '{summoner_decoded}' via {url}")
+        sdata = await _get(url)
+        puuid = sdata.get("puuid")
+
     if not puuid:
-        raise HTTPException(404, "Summoner not found")
+        raise HTTPException(404, "Summoner/Account not found")
 
-    # 2) Recent match IDs (cache)
+    # --- 2) Match-IDs und Details wie gehabt ...
     mkey = f"matches:{rr}:{puuid}:c{count}"
     mids = await cache_get(mkey)
     if not mids:
         mids = await _get(f"https://{rr}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?start=0&count={count}")
         await cache_put(mkey, mids)
 
-    # 3) Fetch match details (individual cached)
     matches = []
     for mid in mids:
         dk = f"match:{rr}:{mid}"
@@ -94,6 +119,7 @@ async def summary(region: str, summoner: str, count: int = 10):
             md = await _get(f"https://{rr}.api.riotgames.com/lol/match/v5/matches/{mid}")
             await cache_put(dk, md)
         matches.append(md)
+
 
     # 4) Aggregate per player (K/D/A, W/L, champ progress)
     totals = { 'games': 0, 'wins': 0, 'losses': 0, 'k': 0, 'd': 0, 'a': 0 }

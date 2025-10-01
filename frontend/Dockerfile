@@ -1,0 +1,23 @@
+FROM node:20-alpine AS build
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+ARG VITE_URL
+ARG VITE_REGION
+ARG VITE_SUMMONER
+ARG VITE_TWITCH_CHANNEL
+
+ENV VITE_URL=$VITE_URL
+ENV VITE_REGION=$VITE_REGION
+ENV VITE_SUMMONER=$VITE_SUMMONER
+ENV VITE_TWITCH_CHANNEL=$VITE_TWITCH_CHANNEL
+
+COPY . .
+RUN npm run build
+
+FROM caddy:2-alpine
+COPY --from=build /app/dist /usr/share/caddy
+COPY ../infra/Caddyfile /etc/caddy/Caddyfile
+EXPOSE 80 443
