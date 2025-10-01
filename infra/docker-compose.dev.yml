@@ -1,0 +1,53 @@
+version: '3.9'
+services:
+  backend:
+    build:
+      context: ../backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///data/app.db
+      - JWT_SECRET=dev-secret
+      - IP_HASH_SECRET=dev-secret
+      - RIOT_API_KEY=${RIOT_API_KEY}
+      - RIOT_CACHE_TTL_SECONDS=600
+    volumes:
+      - ../backend:/app
+      - backend_data:/data
+    ports:
+      - "8000:8000"
+    networks: [web]
+
+
+  frontend:
+    build:
+      context: ../frontend
+    command: sh -c "npm ci && npm run dev -- --host"
+    working_dir: /app
+    volumes:
+      - ../frontend:/app
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_DEV_SERVER=true
+    networks: [web]
+
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on: [backend]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    ports:
+      - "80:80"
+      - "443:443"
+    networks: [web]
+
+
+volumes:
+  backend_data:
+  caddy_data:
+
+
+networks:
+  web:
